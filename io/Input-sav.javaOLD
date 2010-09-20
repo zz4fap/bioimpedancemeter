@@ -1,0 +1,81 @@
+package io;
+
+import java.io.IOException;
+
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.TargetDataLine;
+
+import dsp.AlgTyp;
+import dsp.Application;
+import dsp.SignalProvider;
+
+/**
+ * The Input Thread get data from the input-line from the soundcard and
+ * send these to the listeners (algController and TraceCanvas).
+ * 
+ * This class is a part of the Project "RLC-Messbruecke fuer 5 Franken"
+ * University of Applied Sciences Lucerne -  Switzerland
+ * @author Martin Klaper & Christian Kohler & Joël Gruber
+ */
+public class Input extends SignalProvider implements Runnable {
+	
+	private boolean running;
+
+    private int byteBufferSize;
+    private TargetDataLine line = null;  
+    private int sizeLSamples = 141120; //samples to read for ohmmeter algorithm
+    private double[] lSamples;
+    private double[] rSamples;
+    private AlgTyp algTyp;
+    private Application appl;
+
+    public Input(Object lock, DeviceChoice dc, AudioFormat audioFormat, int byteBufferSize, AlgTyp palgTyp, Application pAppl){
+    	this.byteBufferSize = byteBufferSize;
+        line = dc.getTargetDataLine();
+        line.start();
+        running = true;
+        algTyp = palgTyp;
+        appl = pAppl;
+        if(algTyp.equals(AlgTyp.Ohmmeter)){
+        	this.byteBufferSize = sizeLSamples;
+        }
+        lSamples = new double[this.byteBufferSize/4];
+        rSamples = new double[this.byteBufferSize/4];
+    }
+    
+    public synchronized void terminate() {
+    	
+    	running = false;
+    }
+    
+    public synchronized boolean isRunning() {
+		return running;
+	}
+    
+	public void run() {
+		while(isRunning()){
+			try {
+				this.read();
+				sendSignal(lSamples, rSamples);
+				if(algTyp.equals(AlgTyp.Ohmmeter)){
+					appl.setRLCDataSamples(lSamples, rSamples);
+					running = false;
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+    
+    public void read() throws IOException {
+        byte tempBuffer[] = new byte[byteBufferSize];
+        int cnt = line.read(tempBuffer, 0, byteBufferSize);
+            if(cnt > 0){
+              //save data to samples left and right
+              for(int i=0; i < byteBufferSize/4-3; i++){
+            	  lSamples[i] = ( (tempBuffer[4*i] & 0xFF)| (tempBuffer[4*i +1] << 8) )/ 32768.0F;
+            	  rSamples[i] = (( (tempBuffer[4*i +2] & 0xFF)| (tempBuffer[4*i +3] << 8) )/ 32768.0F);
+              }
+            }
+    }
+}
